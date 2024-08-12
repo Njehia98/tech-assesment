@@ -1,24 +1,20 @@
 import socket
 import threading
+import os
+from dotenv import load_dotenv
 
-# Define the server host and port
-HOST = '127.0.0.1'  # localhost
-PORT = 12345        # Arbitrary non-privileged port
-CONFIG_FILE = 'config.txt'  # Path to your configuration file
+# Load environment variables from .env file
+load_dotenv()
 
-def get_linux_path(config_file):
-    """
-    Reads the configuration file and extracts the linux path.
-    :param config_file: The path to the configuration file.
-    :return: The path specified in the line starting with 'linuxpath='.
-    """
-    with open(config_file, 'r') as file:
-        for line in file:
-            if line.startswith('linuxpath='):
-                # Extract the path after 'linuxpath='
-                linux_path = line.split('=', 1)[1].strip()
-                return linux_path
-    return None
+# Get the environment variables
+HOST = os.getenv('HOST')
+PORT = int(os.getenv('PORT'))
+SERVER_NAME = os.getenv('SERVER_NAME')
+MAX_CONNECTIONS = int(os.getenv('MAX_CONNECTIONS'))
+LOG_LEVEL = os.getenv('LOG-LEVEL')
+LINUX_PATH = os.getenv('LINUXPATH')
+TIMEOUT = int(os.getenv('TIMEOUT'))
+DEBUG_MODE = os.getenv('DEBUG_MODE').lower() == 'true'
 
 def handle_client(client_socket, address, file_path):
     """
@@ -30,11 +26,25 @@ def handle_client(client_socket, address, file_path):
     print(f"[INFO] Connection established with {address}")
     
     try:
-        # Send the file contents to the client
-        with open(file_path, 'r') as file:
-            file_content = file.read()
+        # Receive data from the client
+        data = client_socket.recv(1024)
+        if not data:
+            return
         
-        client_socket.sendall(file_content.encode('utf-8'))
+        # Decode the received bytes to a string
+        search_string = data.decode('utf-8').strip()
+        print(f"[INFO] Searching for string: '{search_string}' in the file: {file_path}")
+        
+        # Open the file and search for a full line match
+        with open(file_path, 'r') as file:
+            for line in file:
+                if line.strip() == search_string:
+                    # Found a full match
+                    client_socket.sendall(b"STRING EXISTS")
+                    return
+        
+        # If no match is found
+        client_socket.sendall(b"STRING DOES NOT EXIST")
     
     except FileNotFoundError:
         print(f"[ERROR] File not found: {file_path}")
@@ -52,14 +62,13 @@ def start_server():
     """
     Starts the server and listens for incoming connections.
     """
-    # Get the path from the configuration file
-    file_path = get_linux_path(CONFIG_FILE)
+    file_path = LINUX_PATH
     
     if not file_path:
-        print("[ERROR] 'linuxpath=' not found in the configuration file.")
+        print("[ERROR] 'LINUXPATH' not found in the environment file.")
         return
     
-    print(f"[INFO] File path from config: {file_path}")
+    print(f"[INFO] File path from environment: {file_path}")
     
     # Create a socket object
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -70,13 +79,16 @@ def start_server():
     # Bind the socket to the host and port
     server_socket.bind((HOST, PORT))
     
-    # Listen for incoming connections
-    server_socket.listen()
-    print(f"[INFO] Server listening on {HOST}:{PORT}")
+    # Set the maximum number of connections
+    server_socket.listen(MAX_CONNECTIONS)
+    print(f"[INFO] Server '{SERVER_NAME}' listening on {HOST}:{PORT} with max connections: {MAX_CONNECTIONS}")
     
     while True:
         # Accept incoming connections
         client_socket, address = server_socket.accept()
+        
+        # Set the timeout for the client connection
+        client_socket.settimeout(TIMEOUT)
         
         # Create a new thread for each client connection
         client_thread = threading.Thread(target=handle_client, args=(client_socket, address, file_path))
