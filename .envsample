@@ -1,9 +1,0 @@
-SERVER_NAME=name of your server
-MAX_CONNECTIONS=100
-LOG-LEVEL=info
-LINUXPATH=path to your txt file to be used in the project (/path/to/your/200k.txt)
-TIMEOUT=30
-DEBUG_MODE=false
-HOST = host name i.e localhost 127.0.0.1
-PORT = port i.e 8000
-REREAD_ON_QUERY=true
