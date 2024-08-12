@@ -2,6 +2,7 @@ import socket
 import threading
 import os
 from dotenv import load_dotenv
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,6 +16,16 @@ LOG_LEVEL = os.getenv('LOG-LEVEL')
 LINUX_PATH = os.getenv('LINUXPATH')
 TIMEOUT = int(os.getenv('TIMEOUT'))
 DEBUG_MODE = os.getenv('DEBUG_MODE').lower() == 'true'
+REREAD_ON_QUERY = os.getenv('REREAD_ON_QUERY').lower() == 'true'
+
+def read_file(file_path):
+    """
+    Reads the content of the file and returns it as a list of lines.
+    :param file_path: The path to the file to read.
+    :return: A list of lines from the file.
+    """
+    with open(file_path, 'r') as file:
+        return file.readlines()
 
 def handle_client(client_socket, address, file_path):
     """
@@ -32,20 +43,37 @@ def handle_client(client_socket, address, file_path):
             return
         
         # Decode the received bytes to a string
-        search_string = data.decode('utf-8').strip()
+        search_string = data.decode('utf-8').rstrip('\x00').strip()
         print(f"[INFO] Searching for string: '{search_string}' in the file: {file_path}")
+
+        start_time = time.time()
+        # Re-read the file or use cached content based on REREAD_ON_QUERY
+        if REREAD_ON_QUERY:
+            file_lines = read_file(file_path)
+        else:
+            if not hasattr(handle_client, "cached_lines"):
+                handle_client.cached_lines = read_file(file_path)
+            file_lines = handle_client.cached_lines
         
-        # Open the file and search for a full line match
-        with open(file_path, 'r') as file:
-            for line in file:
-                if line.strip() == search_string:
-                    # Found a full match
-                    client_socket.sendall(b"STRING EXISTS")
-                    return
+        end_time = time.time()
+        elapsed_time = (end_time - start_time) * 1000
+
+        # Log execution time
+        # debug_info = (
+        #     f"DEBUG: [TIME: {time.strftime('%Y-%m-%d %H:%M:%S')}] "
+        #     f"[IP: {address[0]}] [Query: '{search_string}'] [Execution Time: {elapsed_time:.2f} ms]\n"
+        # )
+
+        # Search for a full line match
+        if any(line.strip() == search_string for line in file_lines):
+            response = "STRING EXISTS\n"
+        else:
+            response = "STRING NOT FOUND\n"
         
-        # If no match is found
-        client_socket.sendall(b"STRING DOES NOT EXIST")
-    
+        # Send the response to the client
+        client_socket.sendall(response.encode('utf-8'))
+
+        
     except FileNotFoundError:
         print(f"[ERROR] File not found: {file_path}")
         client_socket.sendall(b"File not found on the server.")
@@ -84,6 +112,7 @@ def start_server():
     print(f"[INFO] Server '{SERVER_NAME}' listening on {HOST}:{PORT} with max connections: {MAX_CONNECTIONS}")
     
     while True:
+        
         # Accept incoming connections
         client_socket, address = server_socket.accept()
         
@@ -94,6 +123,8 @@ def start_server():
         client_thread = threading.Thread(target=handle_client, args=(client_socket, address, file_path))
         client_thread.daemon = True
         client_thread.start()
+
+  
 
 if __name__ == "__main__":
     start_server()
